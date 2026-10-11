@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jungle Quest: The Lost Treasure</title>
+<style>
+:root{--ink:#183b2a;--gold:#ffd45a;--leaf:#2b8a47}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at top,#245f43,#09251d 75%);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#fff;padding:18px}
+.game-shell{width:min(100%,1000px);border:3px solid #d7a83c;border-radius:22px;overflow:hidden;background:#123b2a;box-shadow:0 20px 60px #0008}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;background:linear-gradient(90deg,#173f2d,#286b3e);flex-wrap:wrap}
+.brand{font-weight:900;letter-spacing:.4px;font-size:clamp(16px,2.8vw,23px)}.brand span{color:var(--gold)}
+.stats{display:flex;gap:9px;flex-wrap:wrap}.stat{background:#09291dcc;border:1px solid #ffffff30;border-radius:12px;padding:7px 12px;font-weight:800;font-size:14px}
+canvas{display:block;width:100%;height:auto;background:#86d9bd;image-rendering:pixelated}
+.bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:#102f23;flex-wrap:wrap;color:#d9f4df;font-size:13px}
+kbd{background:#f4e6b4;color:#243d2c;border-radius:5px;padding:2px 6px;font-weight:900;box-shadow:0 2px 0 #b39a54}
+button{border:0;border-radius:10px;padding:10px 16px;background:var(--gold);color:#183b2a;font-weight:900;cursor:pointer;box-shadow:0 3px 0 #b58c29;transition:transform .12s}button:hover{transform:translateY(-1px)}button:active{transform:translateY(2px);box-shadow:none}
+.overlay{position:fixed;inset:0;display:grid;place-items:center;padding:20px;background:#061b17b8;z-index:5}.panel{width:min(100%,480px);text-align:center;padding:30px 28px;border-radius:24px;background:linear-gradient(160deg,#1f6941,#103b2c);border:3px solid #f4c94f;box-shadow:0 18px 70px #0008}.panel .emoji{font-size:54px}.panel h1{font-size:clamp(27px,6vw,42px);line-height:1.05;margin:10px 0;color:#ffe27a}.panel p{line-height:1.6;color:#e4f5e6}.panel .small{font-size:13px;opacity:.85;margin-top:17px}.hidden{display:none}
+@media(max-width:560px){body{padding:6px}.game-shell{border-radius:14px}.topbar{padding:10px}.bottom{font-size:12px}.stat{padding:6px 8px}}
+</style>
+</head>
+<body>
+<main class="game-shell">
+  <header class="topbar">
+    <div class="brand">🌿 JUNGLE QUEST <span>· THE LOST TREASURE</span></div>
+    <div class="stats">
+      <div class="stat">🪙 Coins: <span id="coins">0</span>/<span id="totalCoins">8</span></div>
+      <div class="stat">⭐ Score: <span id="score">0</span></div>
+      <div class="stat">❤️ Health: <span id="health">3</span></div>
+    </div>
+  </header>
+  <canvas id="game" width="960" height="540" aria-label="Jungle Quest game canvas"></canvas>
+  <footer class="bottom">
+    <div>Move <kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> · Jump <kbd>SPACE</kbd> · Restart <kbd>R</kbd></div>
+    <button id="restart">↻ Restart</button>
+  </footer>
+</main>
+<div class="overlay" id="overlay">
+  <section class="panel">
+    <div class="emoji" id="panelEmoji">🗺️</div>
+    <h1 id="panelTitle">Jungle Quest</h1>
+    <p id="panelText">Deep in the Emerald Jungle, a lost treasure waits. Collect coins, dodge the jungle critters, and reach the golden chest!</p>
+    <button id="startBtn">Start Adventure ▶</button>
+    <p class="small">Desktop adventure · No downloads or accounts needed</p>
+  </section>
+</div>
+<script>
+(() => {
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const W = canvas.width, H = canvas.height, WORLD = 2200, GRAVITY = .62;
+let state = 'start', camera = 0, score = 0, coins = 0, health = 3, keys = {};
+const player = {x:60,y:360,w:34,h:44,vx:0,vy:0,onGround:false,invuln:0,face:1};
+const platforms = [
+ {x:0,y:475,w:470,h:90},{x:540,y:430,w:190,h:30},{x:790,y:385,w:170,h:30},
+ {x:1010,y:440,w:210,h:35},{x:1280,y:390,w:170,h:30},{x:1500,y:440,w:190,h:35},
+ {x:1750,y:385,w:180,h:30},{x:1980,y:465,w:220,h:90},
+ {x:300,y:365,w:110,h:20},{x:900,y:300,w:105,h:20},{x:1380,y:300,w:100,h:20},{x:1810,y:295,w:105,h:20}
+];
+let coinItems=[], enemies=[], particles=[];
+function reset(){
+ state='playing'; camera=0; score=0;coins=0;health=3;
+ Object.assign(player,{x:60,y:390,vx:0,vy:0,onGround:false,invuln:0,face:1});
+ coinItems=[
+ [155,425],[335,320],[600,380],[850,335],[940,250],[1080,390],[1340,340],[1425,250],
+ [1580,390],[1840,245],[2040,420],[720,390]
+ ].map(([x,y])=>({x,y,r:11,got:false,spin:Math.random()*6}));
+ enemies=[
+ {x:350,y:445,w:30,h:28,min:280,max:430,vx:1.2,alive:true},
+ {x:1080,y:410,w:32,h:30,min:1020,max:1180,vx:1.4,alive:true},
+ {x:1580,y:410,w:32,h:30,min:1520,max:1650,vx:1.6,alive:true},
+ {x:1840,y:355,w:30,h:28,min:1760,max:1900,vx:1.25,alive:true}
+ ];
+ particles=[]; $('overlay').classList.add('hidden'); updateHud();
+}
+function updateHud(){ $('coins').textContent=coins; $('score').textContent=score; $('health').textContent=health; $('totalCoins').textContent=coinItems.length || 12; }
+function showPanel(type){
+ state=type; $('overlay').classList.remove('hidden');
+ const data={
+ start:['🗺️','Jungle Quest','Deep in the Emerald Jungle, a lost treasure waits. Collect coins, dodge the jungle critters, and reach the golden chest!','Start Adventure ▶'],
+ win:['🏆','TREASURE FOUND!','You conquered the jungle! Your score: '+score+' points, with '+coins+' coins collected. The lost treasure is yours!','Play Again ↻'],
+ over:['💔','GAME OVER','The jungle was too wild this time. Final score: '+score+'. Take a breath, then try your quest again!','Try Again ↻']
+ }[type];
+ $('panelEmoji').textContent=data[0]; $('panelTitle').textContent=data[1]; $('panelText').textContent=data[2]; $('startBtn').textContent=data[3];
+}
+$('startBtn').addEventListener('click',reset); $('restart').addEventListener('click',reset);
+window.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight',' ','ArrowUp'].includes(e.key))e.preventDefault();keys[e.key.toLowerCase()]=true;if(e.key.toLowerCase()==='r')reset();if(state!=='playing'&&(e.key==='Enter'||e.key===' '))reset();});
+window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+function rects(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function burst(x,y,color,n=8){for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*5,vy:(Math.random()-.8)*5,life:30,color});}
+function update(){
+ if(state!=='playing')return;
+ const left=keys.arrowleft||keys.a,right=keys.arrowright||keys.d;
+ player.vx=left?-4.2:right?4.2:0;if(left)player.face=-1;if(right)player.face=1;
+ if((keys[' ']||keys.arrowup||keys.w)&&player.onGround){player.vy=-12.6;player.onGround=false;}
+ player.vy=Math.min(player.vy+GRAVITY,14);
+ let oldY=player.y;player.x=Math.max(0,Math.min(WORLD-player.w,player.x+player.vx));player.y+=player.vy;player.onGround=false;
+ for(const p of platforms){if(player.vy>=0&&oldY+player.h<=p.y+8&&player.y+player.h>=p.y&&player.x+player.w>p.x&&player.x<p.x+p.w){player.y=p.y-player.h;player.vy=0;player.onGround=true;}}
+ if(player.y>H+120){hurt();player.x=Math.max(30,player.x-100);player.y=300;player.vy=0;}
+ if(player.invuln>0)player.invuln--;
+ for(const c of coinItems){c.spin+=.12;if(!c.got&&Math.abs((player.x+player.w/2)-c.x)<23&&Math.abs((player.y+player.h/2)-c.y)<28){c.got=true;coins++;score+=100;burst(c.x,c.y,'#ffdc4a',10);}}
+ for(const en of enemies){if(!en.alive)continue;en.x+=en.vx;if(en.x<en.min||en.x+en.w>en.max)en.vx*=-1;
+  if(rects(player,en)){if(player.vy>1&&oldY+player.h<en.y+10){en.alive=false;player.vy=-8;score+=150;burst(en.x+15,en.y,'#a7f06a',12);}else if(player.invuln===0){hurt();player.vx=player.x<en.x?-6:6;player.vy=-5;}}
+ }
+ if(player.invuln===0)player.vx=left?-4.2:right?4.2:0;
+ if(player.x>2070&&player.y+player.h>390){score+=coins*0;updateHud();showPanel('win');}
+ camera=Math.max(0,Math.min(WORLD-W,player.x-W*.36));
+ particles=particles.filter(p=>p.life-->0);for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.12;}
+ updateHud();
+}
+function hurt(){if(player.invuln>0)return;health--;player.invuln=95;burst(player.x+15,player.y+20,'#ff6868',10);if(health<=0){updateHud();showPanel('over');}}
+function rounded(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+function drawBackground(){
+ const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#8ee4c1');sky.addColorStop(1,'#d4f3a4');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ // distant jungle hills
+ for(let i=0;i<9;i++){let x=((i*290-camera*.18)%1300+1300)%1300-100;ctx.fillStyle=i%2?'#58b77a':'#78ca83';ctx.beginPath();ctx.ellipse(x,390,180,130,0,0,Math.PI*2);ctx.fill();}
+ // hanging vines and leafy canopy
+ for(let i=0;i<14;i++){let x=((i*173-camera*.48)%1100+1100)%1100;ctx.strokeStyle='#236d43';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(x,0);ctx.quadraticCurveTo(x+20,45,x-3,80+(i%3)*20);ctx.stroke();for(let j=0;j<3;j++){ctx.fillStyle=j%2?'#25814a':'#36a65c';ctx.beginPath();ctx.ellipse(x+(j%2?13:-10),25+j*17,14,7,j*.6,0,Math.PI*2);ctx.fill();}}
+}
+function drawTree(x,y,s=1){ctx.fillStyle='#805333';ctx.fillRect(x-7*s,y-45*s,14*s,48*s);for(const [dx,dy,r,col] of [[-13,-48,23,'#187447'],[10,-60,26,'#238b4b'],[0,-78,22,'#36a85a'],[22,-42,18,'#2b9650']]){ctx.fillStyle=col;ctx.beginPath();ctx.arc(x+dx*s,y+dy*s,r*s,0,Math.PI*2);ctx.fill();}}
+function draw(){
+ drawBackground();ctx.save();ctx.translate(-camera,0);
+ // trees and jungle rocks
+ for(let x=35;x<WORLD;x+=205)drawTree(x,475,.7+(Math.sin(x)*.12+.12));
+ for(const p of platforms){
+  ctx.fillStyle='#79502f';ctx.fillRect(p.x,p.y,p.w,p.h);
+  ctx.fillStyle='#4cb94f';ctx.fillRect(p.x,p.y,p.w,8);
+  ctx.fillStyle='#2f8a3f';for(let x=p.x+5;x<p.x+p.w;x+=19){ctx.beginPath();ctx.ellipse(x,p.y+5,7,4,0,Math.PI,Math.PI*2);ctx.fill();}
+  if(p.w>100){for(let x=p.x+25;x<p.x+p.w-10;x+=65){ctx.fillStyle='#7caa68';ctx.beginPath();ctx.ellipse(x,p.y+22,10,6,-.3,0,Math.PI*2);ctx.fill();}}
+ }
+ // rocks
+ for(const [x,y,r] of [[240,466,17],[690,421,12],[1190,430,18],[1710,430,15],[2010,455,13]]){ctx.fillStyle='#71877a';ctx.beginPath();ctx.ellipse(x,y,r,r*.65,0,Math.PI,Math.PI*2);ctx.fill();ctx.fillStyle='#a6b8a3';ctx.beginPath();ctx.ellipse(x-4,y-5,r*.45,r*.18,-.2,0,Math.PI*2);ctx.fill();}
+ // coins
+ for(const c of coinItems){if(c.got)continue;ctx.save();ctx.translate(c.x,c.y);ctx.scale(Math.abs(Math.cos(c.spin))*.65+.35,1);ctx.fillStyle='#e9a91e';ctx.beginPath();ctx.arc(0,0,c.r+3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#ffdf54';ctx.beginPath();ctx.arc(0,0,c.r,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#d89015';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,5,0,Math.PI*2);ctx.stroke();ctx.restore();}
+ // enemies: little jungle beetles
+ for(const e of enemies){if(!e.alive)continue;ctx.fillStyle='#6e3f9d';ctx.beginPath();ctx.ellipse(e.x+e.w/2,e.y+e.h/2,e.w/2,e.h/2,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#a66bd0';ctx.beginPath();ctx.ellipse(e.x+e.w/2,e.y+8,9,7,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(e.x+10,e.y+9,4,0,Math.PI*2);ctx.arc(e.x+22,e.y+9,4,0,Math.PI*2);ctx.fill();ctx.fillStyle='#202020';ctx.beginPath();ctx.arc(e.x+11,e.y+9,1.8,0,Math.PI*2);ctx.arc(e.x+23,e.y+9,1.8,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#3b2451';ctx.lineWidth=3;for(let k=0;k<3;k++){ctx.beginPath();ctx.moveTo(e.x+5+k*10,e.y+e.h-3);ctx.lineTo(e.x+1+k*12,e.y+e.h+3);ctx.stroke();}}
+ // treasure chest at the end
+ const tx=2110,ty=420;ctx.fillStyle='#75401d';ctx.fillRect(tx,ty,55,42);ctx.fillStyle='#b9752b';ctx.fillRect(tx,ty,55,16);ctx.fillStyle='#f6c743';ctx.fillRect(tx+23,ty+13,10,20);ctx.fillStyle='#ffdf70';ctx.fillRect(tx+25,ty+17,6,6);ctx.strokeStyle='#5a3117';ctx.lineWidth=3;ctx.strokeRect(tx,ty,55,42);ctx.fillStyle='#ffe477';ctx.font='bold 15px sans-serif';ctx.fillText('TREASURE',tx-12,ty-13);
+ // player with backpack and animated legs
+ const px=player.x,py=player.y;ctx.save();if(player.invuln>0&&Math.floor(player.invuln/6)%2===0)ctx.globalAlpha=.35;
+ // shadow
+ ctx.fillStyle='#235d3d55';ctx.beginPath();ctx.ellipse(px+17,py+45,19,5,0,0,Math.PI*2);ctx.fill();
+ // legs
+ ctx.fillStyle='#3454a4';ctx.fillRect(px+7,py+30,8,12);ctx.fillRect(px+20,py+30,8,12);ctx.fillStyle='#53331e';ctx.fillRect(px+4,py+39,12,5);ctx.fillRect(px+18,py+39,12,5);
+ // body and backpack
+ rounded(px+5,py+14,25,22,6,'#e76e35');rounded(px+1,py+19,9,17,4,'#7e4928');
+ // face
+ ctx.fillStyle='#c9824c';ctx.beginPath();ctx.arc(px+17,py+10,12,0,Math.PI*2);ctx.fill();
+ // hair
+ ctx.fillStyle='#3a271d';ctx.beginPath();ctx.arc(px+17,py+7,12,Math.PI,Math.PI*2);ctx.fill();ctx.fillRect(px+5,py+5,5,8);
+ // eyes
+ ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(px+13+(player.face===1?2:-2),py+11,3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#20231d';ctx.beginPath();ctx.arc(px+14+(player.face===1?2:-2),py+11,1.5,0,Math.PI*2);ctx.fill();
+ // bandana
+ ctx.fillStyle='#f7cf4d';ctx.fillRect(px+6,py+3,22,4);
+ ctx.restore();
+ // particles
+ for(const p of particles){ctx.globalAlpha=Math.max(0,p.life/30);ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,5,5);}ctx.globalAlpha=1;
+ ctx.restore();
+ // helpful progress marker
+ ctx.fillStyle='#123b2a99';ctx.fillRect(16,16,180,8);ctx.fillStyle='#ffdb57';ctx.fillRect(16,16,180*(player.x/WORLD),8);ctx.fillStyle='#123b2a';ctx.font='bold 12px sans-serif';ctx.fillText('JUNGLE PROGRESS',16,39);
+ if(state==='playing'&&player.x<100){ctx.fillStyle='#123b2ab8';rounded(260,18,440,38,12,'#123b2ab8');ctx.fillStyle='#fff';ctx.font='bold 14px sans-serif';ctx.textAlign='center';ctx.fillText('Collect coins · Jump on critters · Find the chest!',480,42);ctx.textAlign='left';}
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+updateHud();showPanel('start');loop();
+})();
+</script>
+</body>
+</html>
